@@ -1,5 +1,5 @@
 "use strict";
-var serialport = require('serialport'),
+var SerialPort = require('serialport'),
   fs = require('fs'),
   EventEmitter = require('events').EventEmitter,
   Commands = require('./commands'),
@@ -65,14 +65,14 @@ var SSPInstance = Class.extend({
       enableOnInit = false;
     }
     cb = cb || function(){};
-    if (this.port && this.port.isOpen()) {
+    if (this.port && this.port.isOpen) {
       this.port.close(function () {
         initializeDevice();
       });
     } else if(!options.device) {
-      serialport.list(function(err, ports) {
-        if(err || ports.length === 0) {
-          cb(err || new Error("No devices found"));
+      SerialPort.list().then(function(ports) {
+        if(ports.length === 0) {
+          cb(new Error("No devices found"));
         } else {
           for(var i in ports) {
             if(ports[i].vendorId === '0x191c' || (ports[i].pnpId && ports[i].pnpId.indexOf('Innovative_Technology') > -1)) {
@@ -86,17 +86,19 @@ var SSPInstance = Class.extend({
             initializeDevice();
           }
         }
+      }, function(err) {
+        cb(err);
       });
     } else {
       initializeDevice();
     }
     function initializeDevice () {
-      port = new serialport.SerialPort(options.device, {
-        baudrate: options.baudrate,
-        databits: options.databits,
-        stopbits: options.stopbits,
+      port = new SerialPort(options.device, {
+        baudRate: options.baudrate,
+        dataBits: options.databits,
+        stopBits: options.stopbits,
         parity: options.parity,
-        parser: serialport.parsers.raw
+        parser: SerialPort.parsers.raw
       }, false);
       self.port = port;
       commands = self.commands = new Commands(port, options.type, options.sspID, options.sequence);
@@ -106,7 +108,7 @@ var SSPInstance = Class.extend({
       port.on('error', function (err) {
         self.emit('error', err);
       });
-      port.open(function (err) {
+      port.on('open', function () {
         function parseBuffer(buffer) {
           var data, buf, error, crc;
           if (buffer[0] === 0x7F) {
@@ -347,39 +349,36 @@ var SSPInstance = Class.extend({
             self.emit('unregistered_data', buffer);
           }
         }
-        if (err) {
-          cb(err);
-        } else {
-          var low = self.options.currencies.reduce(function (p, c, i) {
-            return c === 1 ? p += Math.pow(2, i) : p;
-          }, 0);
-          port.on('data', function (buffer) {
-            var ix = 0;
-            do {
-              var len = buffer[2] + 5;
-              var buf = new Buffer(len);
-              buffer.copy(buf, 0, ix, ix + len);
-              parseBuffer(buf);
-              ix += len;
-            } while(ix < buffer.length);
-          });
-          //wait a bit for port buffer to empty
-          setTimeout(function() {
-            commands.sync().enable_higher_protocol()
-              .set_channel_inhibits(low, 0x00);
-            if (enableOnInit) {
+
+        var low = self.options.currencies.reduce(function (p, c, i) {
+          return c === 1 ? p += Math.pow(2, i) : p;
+        }, 0);
+        port.on('data', function (buffer) {
+          var ix = 0;
+          do {
+            var len = buffer[2] + 5;
+            var buf = new Buffer(len);
+            buffer.copy(buf, 0, ix, ix + len);
+            parseBuffer(buf);
+            ix += len;
+          } while(ix < buffer.length);
+        });
+        //wait a bit for port buffer to empty
+        setTimeout(function() {
+          commands.sync().enable_higher_protocol()
+            .set_channel_inhibits(low, 0x00);
+          if (enableOnInit) {
+            cb && cb();
+            self.enable(function () {
+              self.emit("ready");
+            });
+          } else {
+            commands.exec(function () {
               cb && cb();
-              self.enable(function () {
-                self.emit("ready");
-              });
-            } else {
-              commands.exec(function () {
-                cb && cb();
-                self.emit("ready");
-              });
-            }
-          }, 100);
-        }
+              self.emit("ready");
+            });
+          }
+        }, 100);
       });
     }
   }
