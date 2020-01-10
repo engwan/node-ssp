@@ -1,5 +1,6 @@
 "use strict";
 var SerialPort = require('serialport'),
+  InterByteTimeout = require('@serialport/parser-inter-byte-timeout'),
   fs = require('fs'),
   EventEmitter = require('events').EventEmitter,
   Commands = require('./commands'),
@@ -97,8 +98,7 @@ var SSPInstance = Class.extend({
         baudRate: options.baudrate,
         dataBits: options.databits,
         stopBits: options.stopbits,
-        parity: options.parity,
-        parser: SerialPort.parsers.raw
+        parity: options.parity
       }, false);
       self.port = port;
       commands = self.commands = new Commands(port, options.type, options.sspID, options.sequence);
@@ -353,7 +353,8 @@ var SSPInstance = Class.extend({
         var low = self.options.currencies.reduce(function (p, c, i) {
           return c === 1 ? p += Math.pow(2, i) : p;
         }, 0);
-        port.on('data', function (buffer) {
+        var parser = port.pipe(new InterByteTimeout({ interval: 30 }));
+        parser.on('data', function (buffer) {
           var ix = 0;
           do {
             var len = buffer[2] + 5;
